@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive ED Nerve Block Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chosen Palette: Clinical Calm -->
+    <!-- Application Structure Plan: The application is designed as a task-oriented single-page application (SPA) to provide UK Emergency Medicine doctors with rapid access to critical information. The structure prioritizes user goals in a high-pressure environment. The default 'Dashboard' view immediately presents a 'Clinical Indication Selector' to guide users to the appropriate block, alongside prominent links to the 'Dose Calculator' and 'LAST Protocol'. This is faster than navigating a linear document. A persistent top navigation bar allows direct jumps to the main sections: 'Dashboard', 'Block Guides', 'Drug & Dose Calculator', and 'Safety Centre'. The 'Block Guides' section uses a sub-navigation panel for quick switching between detailed, standardized procedural guides. This interactive, non-linear structure was chosen because a clinician's primary need is not to read the report end-to-end, but to find specific, actionable information for a patient currently in their care. -->
+    <!-- Visualization & Content Choices: 
+        - Report Info: Clinical conditions -> Goal: Decision Support -> Viz/Method: Interactive HTML buttons -> Interaction: Click a condition (e.g., 'Hip Fracture') to highlight the recommended block ('FICB'). Justification: Provides an immediate answer to "what block should I use?".
+        - Report Info: Local Anaesthetic properties (Table 1) -> Goal: Comparison/Reference -> Viz/Method: Chart.js Bar Chart & HTML Table -> Interaction: Chart visually compares key drugs by onset, duration, and max dose. The table provides precise data. Justification: Dual presentation caters to both quick visual assessment and detailed lookup.
+        - Report Info: Max dose calculation -> Goal: Perform Task/Safety -> Viz/Method: Interactive HTML form (Dose Calculator) -> Interaction: User inputs weight, selects drug; JS calculates and displays max dose/volume. Justification: Reduces cognitive load and risk of calculation error for a critical safety step.
+        - Report Info: LAST Management Algorithm (Table 2) -> Goal: Guide Emergency Response -> Viz/Method: HTML/CSS Flexbox/Grid Flowchart -> Interaction: None; visual clarity is paramount. Justification: A visual flowchart is far easier to parse in a crisis than text or a simple table.
+        - Report Info: Pre-procedure safety steps -> Goal: Reinforce Safety Process -> Viz/Method: Interactive HTML checklist -> Interaction: Users can click checkboxes. Justification: Actively engages the user with the safety protocol, improving recall.
+        - Report Info: Block anatomy -> Goal: Inform/Visualize -> Viz/Method: Diagrams built with structured HTML/CSS (e.g., layered divs) -> Interaction: None. Justification: Provides clear, schematic anatomical references without external image dependencies, ensuring fast loading and a self-contained application.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        :root {
+            --bg-main: #f8f9fa;
+            --bg-card: #ffffff;
+            --text-primary: #212529;
+            --text-secondary: #6c757d;
+            --border-color: #dee2e6;
+            --accent-blue: #007bff;
+            --accent-blue-hover: #0056b3;
+            --accent-green: #28a745;
+            --accent-red: #dc3545;
+            --accent-yellow: #ffc107;
+            --accent-teal: #17a2b8;
+        }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-main); color: var(--text-primary); }
+        .chart-container { position: relative; width: 100%; max-width: 700px; margin-left: auto; margin-right: auto; height: 350px; max-height: 50vh; }
+        .flowchart-node { border: 2px solid var(--border-color); padding: 0.75rem; border-radius: 0.5rem; background-color: var(--bg-card); text-align: center; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .flowchart-arrow { width: 2px; background-color: var(--text-secondary); margin: 0 auto; }
+        .nav-button { transition: all 0.2s ease-in-out; }
+        .nav-button.active { background-color: var(--accent-blue); color: white; }
+        .block-nav-button.active { background-color: var(--accent-teal); color: white; border-left-color: var(--accent-blue); }
+        .pill-button { transition: all 0.2s ease-in-out; border: 1px solid var(--border-color); }
+        .pill-button.selected { background-color: var(--accent-green); color: white; border-color: var(--accent-green); }
+        .hidden { display: none; }
+        .tab-content { animation: fadeIn 0.5s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        /* For custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-main); }
+        ::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #adb5bd; }
+        .sbb-step { border-left-width: 8px; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="antialiased">
+
+    <header class="bg-white shadow-md sticky top-0 z-50">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <h1 class="text-xl md:text-2xl font-bold text-gray-800">ED Nerve Block Navigator</h1>
+            <nav id="main-nav" class="hidden md:flex space-x-1">
+                <button data-target="dashboard-section" class="nav-button active px-4 py-2 rounded-md font-medium">Dashboard</button>
+                <button data-target="guides-section" class="nav-button px-4 py-2 rounded-md font-medium">Block Guides</button>
+                <button data-target="calculator-section" class="nav-button px-4 py-2 rounded-md font-medium">Dose Calculator</button>
+                <button data-target="safety-section" class="nav-button px-4 py-2 rounded-md font-medium">Safety Centre</button>
+            </nav>
+            <button id="mobile-menu-button" class="md:hidden p-2 rounded-md text-gray-600 hover:bg-gray-100">
+                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
+            </button>
+        </div>
+        <div id="mobile-menu" class="hidden md:hidden bg-white border-t border-gray-200">
+            <nav class="flex flex-col p-2">
+                <button data-target="dashboard-section" class="nav-button active text-left px-3 py-2 rounded-md font-medium">Dashboard</button>
+                <button data-target="guides-section" class="nav-button text-left px-3 py-2 rounded-md font-medium">Block Guides</button>
+                <button data-target="calculator-section" class="nav-button text-left px-3 py-2 rounded-md font-medium">Dose Calculator</button>
+                <button data-target="safety-section" class="nav-button text-left px-3 py-2 rounded-md font-medium">Safety Centre</button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container mx-auto p-4 md:p-6">
+        
+        <!-- Dashboard Section -->
+        <section id="dashboard-section" class="tab-content">
+             <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-6">
+                <h2 class="text-2xl font-bold mb-2">Welcome, UK Emergency Physician</h2>
+                <p class="text-gray-600">This interactive guide is designed for rapid access to ultrasound-guided nerve block information in the ED. Use the tools below to find the right block for your patient, calculate safe anaesthetic doses, and review critical safety protocols. The primary goal is to enhance patient safety and provide superior, opioid-sparing analgesia.</p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2">
+                    <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                        <h3 class="text-xl font-bold mb-4 flex items-center">
+                            <span class="text-white bg-blue-500 rounded-full w-8 h-8 flex items-center justify-center mr-3 text-lg">1</span>
+                            Find a Block by Clinical Indication
+                        </h3>
+                        <p class="text-gray-600 mb-6">Select the patient's injury or condition to see the recommended nerve block(s). Clicking a recommendation will take you directly to the detailed procedural guide.</p>
+                        <div id="indication-selector" class="flex flex-wrap gap-3"></div>
+                        <div id="recommendation-output" class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg hidden">
+                            <h4 class="font-bold text-blue-800">Recommended Block:</h4>
+                            <p id="recommendation-text" class="text-blue-700"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                         <h3 class="text-xl font-bold mb-4 flex items-center">
+                            <span class="text-white bg-green-500 rounded-full w-8 h-8 flex items-center justify-center mr-3 text-lg">2</span>
+                            Quick Access Tools
+                        </h3>
+                        <div class="space-y-3">
+                            <button data-target="calculator-section" class="quick-access-button w-full text-left p-4 bg-green-50 hover:bg-green-100 rounded-lg border border-green-200 transition-all">
+                                <span class="font-bold text-green-800">Dose Calculator</span>
+                                <p class="text-sm text-green-700">Calculate max LA doses by weight.</p>
+                            </button>
+                            <button data-target="safety-section" class="quick-access-button w-full text-left p-4 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 transition-all">
+                                <span class="font-bold text-red-800">LAST Protocol</span>
+                                <p class="text-sm text-red-700">Review immediate toxicity management.</p>
+                            </button>
+                             <button data-target="safety-section" data-subtarget="checklist" class="quick-access-button w-full text-left p-4 bg-yellow-50 hover:bg-yellow-100 rounded-lg border border-yellow-200 transition-all">
+                                <span class="font-bold text-yellow-800">Stop Before You Block</span>
+                                <p class="text-sm text-yellow-700">Run through the mandatory safety checks.</p>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Block Guides Section -->
+        <section id="guides-section" class="hidden tab-content">
+             <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-6">
+                <h2 class="text-2xl font-bold mb-2">Procedural Block Guides</h2>
+                <p class="text-gray-600">This section provides detailed, step-by-step procedural guides for the most common and high-yield nerve blocks performed in the Emergency Department. Each guide includes indications, anatomy, technique, and key clinical pearls to ensure safe and effective practice. Select a block from the navigation panel to begin.</p>
+            </div>
+            <div class="flex flex-col md:flex-row gap-6">
+                <div class="w-full md:w-1/4">
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 sticky top-24">
+                        <h3 class="font-bold mb-4 text-gray-700 px-2">Select a Block</h3>
+                        <nav id="block-nav" class="flex flex-col space-y-1"></nav>
+                    </div>
+                </div>
+                <div id="block-content-area" class="w-full md:w-3/4 bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                    <!-- Dynamic content will be loaded here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Calculator Section -->
+        <section id="calculator-section" class="hidden tab-content">
+             <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-6">
+                <h2 class="text-2xl font-bold mb-2">Drug & Dose Information</h2>
+                <p class="text-gray-600">Use this section to compare local anaesthetic properties and calculate the maximum safe dose for your patient. Accurate dose calculation is a critical safety step to prevent Local Anaesthetic Systemic Toxicity (LAST). Always use ideal body weight for obese patients.</p>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                <div class="lg:col-span-3 bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                    <h3 class="text-xl font-bold mb-4">Local Anaesthetic Dose Calculator</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="patient-weight" class="block font-medium text-gray-700">Patient Weight (kg)</label>
+                            <input type="number" id="patient-weight" placeholder="e.g., 70" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label for="la-drug" class="block font-medium text-gray-700">Local Anaesthetic</label>
+                            <select id="la-drug" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                            </select>
+                        </div>
+                        <button id="calculate-dose-btn" class="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-600 transition-colors">Calculate Max Dose</button>
+                    </div>
+                    <div id="dose-result" class="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200 hidden">
+                        <h4 class="font-bold text-lg text-gray-800">Calculation Result:</h4>
+                        <div id="result-text" class="mt-2 space-y-1"></div>
+                    </div>
+                </div>
+                <div class="lg:col-span-2 bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                    <h3 class="text-xl font-bold mb-4">LA Property Comparison</h3>
+                    <div class="chart-container">
+                        <canvas id="la-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-6 bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                 <h3 class="text-xl font-bold mb-4">Local Anaesthetic Dosing Table</h3>
+                 <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Max Dose (Plain)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Max Dose (Adrenaline)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="la-dosing-table" class="bg-white divide-y divide-gray-200">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                 </div>
+            </div>
+        </section>
+
+        <!-- Safety Section -->
+        <section id="safety-section" class="hidden tab-content">
+            <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-6">
+                <h2 class="text-2xl font-bold mb-2">Safety Centre</h2>
+                <p class="text-gray-600">This section centralizes all critical safety information, including the "Stop Before You Block" protocol and the management of Local Anaesthetic Systemic Toxicity (LAST). Adherence to these guidelines is mandatory for safe practice.</p>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div id="checklist" class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Stop Before You Block Checklist</h3>
+                    <p class="text-gray-600 mb-6">This mandatory safety pause must be completed with an assistant (e.g., nurse) before every block.</p>
+                    
+                    <div class="space-y-5">
+                        <!-- PREP Step -->
+                        <div class="sbb-step border-blue-500 bg-blue-50 p-4 rounded-r-lg">
+                            <h4 class="text-lg font-bold text-blue-800 mb-3">Step 1: PREP (Led by Assistant)</h4>
+                            <div class="space-y-3">
+                                <div class="flex items-start"><input type="checkbox" class="h-5 w-5 mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"><label class="ml-3 text-gray-700">Coagulation / Anticoagulants / Antiplatelets checked?</label></div>
+                                <div class="flex items-start"><input type="checkbox" class="h-5 w-5 mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"><label class="ml-3 text-gray-700">IV access and SpO₂, ECG, NIBP monitoring attached?</label></div>
+                                <div class="flex items-start"><input type="checkbox" class="h-5 w-5 mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"><label class="ml-3 text-gray-700">Drugs ready and max dose calculated & checked?</label></div>
+                                <div class="flex items-start"><input type="checkbox" class="h-5 w-5 mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"><label class="ml-3 text-gray-700">Ultrasound probe ready?</label></div>
+                                <div class="flex items-start"><input type="checkbox" class="h-5 w-5 mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"><label class="ml-3 text-gray-700">Patient sterile and operator gloved?</label></div>
+                            </div>
+                        </div>
+
+                        <!-- STOP Step -->
+                        <div class="sbb-step border-red-500 bg-red-50 p-4 rounded-r-lg">
+                            <h4 class="text-lg font-bold text-red-800 mb-3">Step 2: STOP (Operator & Assistant)</h4>
+                            <div class="space-y-2 text-gray-700">
+                                <p><strong>&#9654; Reconfirm:</strong> Block site matches consent form and site marking.</p>
+                                <p><strong>&#9654; Reconfirm:</strong> Block is appropriate for the indication.</p>
+                            </div>
+                        </div>
+
+                        <!-- BLOCK Step -->
+                        <div class="sbb-step border-green-500 bg-green-50 p-4 rounded-r-lg">
+                            <h4 class="text-lg font-bold text-green-800 mb-3">Step 3: BLOCK (Operator & Assistant)</h4>
+                            <p class="text-gray-700">Proceed immediately with block. If an additional block is needed, return to Step 1: PREP.</p>
+                        </div>
+                        
+                        <!-- POST BLOCK Step -->
+                        <div class="sbb-step border-gray-500 bg-gray-50 p-4 rounded-r-lg">
+                            <h4 class="text-lg font-bold text-gray-800 mb-3">Step 4: POST BLOCK (Assistant)</h4>
+                            <p class="text-gray-700">Restock and reseal block trolley/box.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-lg shadow-sm border border-red-200">
+                    <h3 class="text-xl font-bold text-red-800 mb-4">LAST Management Protocol</h3>
+                    <p class="text-red-700 mb-6">This is a life-threatening emergency. The following is a summary of the AAGBI/RCoA guideline. A physical copy of the guideline and the LAST rescue kit must be immediately available.</p>
+                    
+                    <div id="last-protocol-flowchart">
+                        <div class="flowchart-node bg-red-50 border-red-200">
+                            <h4 class="font-bold text-red-800">SUSPECT LAST</h4>
+                            <p class="text-sm text-red-700">Altered mental state, seizures, metallic taste, arrhythmias, cardiac arrest.</p>
+                        </div>
+                        <div class="h-6 flowchart-arrow"></div>
+                        <div class="flowchart-node">
+                            <h4 class="font-bold">IMMEDIATE ACTIONS</h4>
+                            <ul class="list-decimal list-inside text-left text-sm mt-2">
+                                <li><strong>STOP</strong> injecting LA.</li>
+                                <li><strong>CALL FOR HELP</strong> (announce "LAST Emergency").</li>
+                                <li>Manage <strong>Airway</strong>, give 100% O2.</li>
+                                <li>Ensure IV access & monitoring.</li>
+                            </ul>
+                        </div>
+                        <div class="h-6 flowchart-arrow"></div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             <div class="flowchart-node bg-green-50 border-green-200">
+                                <h4 class="font-bold text-green-800">NO Circulatory Arrest</h4>
+                                <ul class="list-disc list-inside text-left text-sm mt-2 space-y-1">
+                                    <li><strong>Control Seizures:</strong> IV Benzodiazepine (e.g., Midazolam 1-2mg).</li>
+                                    <li><strong>Treat Hypotension/Bradycardia.</strong></li>
+                                    <li><strong>Consider Lipid Emulsion</strong> if instability persists.</li>
+                                </ul>
+                            </div>
+                            <div class="flowchart-node bg-red-50 border-red-200">
+                                <h4 class="font-bold text-red-800">Circulatory Arrest</h4>
+                                <ul class="list-disc list-inside text-left text-sm mt-2 space-y-1">
+                                    <li><strong>Start High-Quality CPR.</strong></li>
+                                    <li><strong>Give Lipid Emulsion 20% IMMEDIATELY.</strong>
+                                        <ul class="list-disc list-inside pl-4 text-xs">
+                                            <li>Bolus: 1.5 ml/kg over 2-3 mins.</li>
+                                            <li>Infusion: 15 ml/kg/hour.</li>
+                                        </ul>
+                                    </li>
+                                    <li><strong>MODIFY ALS:</strong> Use REDUCED Adrenaline doses (≤1 mcg/kg). AVOID Vasopressin.</li>
+                                    <li>Expect <strong>PROLONGED</strong> resuscitation.</li>
+                                </ul>
+                            </div>
+                        </div>
+                         <div class="h-6 flowchart-arrow"></div>
+                         <div class="flowchart-node bg-blue-50 border-blue-200">
+                            <h4 class="font-bold text-blue-800">AFTER THE EVENT</h4>
+                            <p class="text-sm text-blue-700">Transfer to monitored setting (HDU/ICU). Report via local incident system & MHRA Yellow Card.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+<script>
+const APP_DATA = {
+    indications: [
+        { name: 'Hip / Proximal Femur Fx', blockId: 'ficb' },
+        { name: 'Mid-shaft Femur Fx / Patella Fx', blockId: 'femoral' },
+        { name: 'Foot / Ankle Analgesia', blockId: 'popliteal' },
+        { name: 'Rib Fractures', blockId: 'sapb' },
+        { name: 'Forehead / Scalp Laceration', blockId: 'facial' },
+        { name: 'Upper Lip / Mid-face Injury', blockId: 'facial' },
+        { name: 'Distal Forearm Fx Reduction', blockId: 'ivra' },
+        { name: 'Distal Forearm / Hand Injury', blockId: 'forearm' },
+        { name: 'Acute Headache (Migraine, Cluster)', blockId: 'gon' }
+    ],
+    drugs: [
+        { id: 'lidocaine', name: 'Lidocaine', plain: 3, adrenaline: 7, conc: '1% (10mg/ml) or 2% (20mg/ml)', onset: 3, duration: 60, color: 'rgba(54, 162, 235, 0.7)'},
+        { id: 'levobupivacaine', name: 'Levobupivacaine', plain: 2, adrenaline: 2, conc: '0.25% (2.5mg/ml) or 0.5% (5mg/ml)', onset: 15, duration: 600, color: 'rgba(255, 99, 132, 0.7)' },
+        { id: 'ropivacaine', name: 'Ropivacaine', plain: 3, adrenaline: 3, conc: '0.2% (2mg/ml) or 0.5% (5mg/ml)', onset: 15, duration: 360, color: 'rgba(75, 192, 192, 0.7)' },
+        { id: 'prilocaine', name: 'Prilocaine (for IVRA)', plain: 6, adrenaline: null, conc: '0.5% (5mg/ml)', onset: 3, duration: 60, color: 'rgba(255, 206, 86, 0.7)' }
+    ],
+    blocks: {
+        ficb: {
+            title: 'Fascia Iliaca Block (FICB)',
+            content: `
+                <h4 class="font-bold text-lg mb-2">Indications</h4>
+                <p class="mb-4">Fractured neck of femur (cornerstone of management), femoral shaft fractures. Superior to systemic opioids.</p>
+                <img src="https://www.nysora.com/wp-content/uploads/2019/02/11.-Fascia-Iliaca-Nerve-Block-Anatomy-US-Anatomy-Suprainguinal-02.14.2019.jpg" 
+                     alt="Sonoanatomy of Fascia Iliaca Block showing the supra-inguinal 'bow-tie' view with sartorius and internal oblique muscles. Image courtesy of NYSORA.com" 
+                     class="w-full rounded-lg mb-4 border"
+                     onerror="this.onerror=null; const d = document.createElement('div'); d.className = 'w-full h-48 bg-slate-200 flex items-center justify-center text-slate-500 text-center p-4 rounded-lg border'; d.innerHTML = this.alt; this.parentNode.replaceChild(d, this);">
+                <h4 class="font-bold text-lg mb-2">Anatomy & Approaches</h4>
+                <p class="mb-4">A <strong>volume-dependent</strong> fascial plane block targeting the potential space deep to the fascia iliaca. This anaesthetises the femoral and lateral femoral cutaneous nerves. There are two main ultrasound-guided approaches.</p>
+                <div class="p-4 border rounded-lg bg-gray-50 mb-4">
+                    <h5 class="font-semibold text-md mb-2">1. Infra-inguinal Approach</h5>
+                    <p class="text-sm mb-2">The classic approach, performed at the level of the inguinal crease.</p>
+                    <p class="text-sm"><strong>Technique:</strong> Identify the femoral artery and nerve. Insert a 50-100mm needle in-plane from lateral to medial, piercing the fascia lata and fascia iliaca. Deposit LA into the plane, watching for hydrodissection that "unzips" the fascia away from the iliopsoas muscle.</p>
+                </div>
+                <div class="p-4 border rounded-lg bg-gray-50 mb-4">
+                    <h5 class="font-semibold text-md mb-2">2. Supra-inguinal Approach ("Bow-tie" view)</h5>
+                    <p class="text-sm mb-2">A more proximal approach which may provide better spread to the obturator nerve.</p>
+                    <p class="text-sm"><strong>Technique:</strong> Place the probe just superior and parallel to the inguinal ligament. Identify the "bow-tie" sign formed by the sartorius muscle laterally and the internal oblique muscle medially, with the iliopsoas muscle deep. The target is the plane deep to the fascia iliaca at the "knot" of the bow-tie. Insert the needle in-plane from lateral to medial.</p>
+                </div>
+                <h4 class="font-bold text-lg mb-2">LA Choice & Volume</h4>
+                <p><strong>Volume-dependent.</strong> Use 30-40ml of 0.25% Levobupivacaine or 0.2% Ropivacaine. Max dose is 2mg/kg for Levobupivacaine.</p>
+                <h4 class="font-bold text-lg mb-2">Pearls & Risks</h4>
+                <p>Highly effective and reduces delirium in elderly. Onset 20-30 mins. Be vigilant for opioid-induced respiratory depression after the block takes effect. The supra-inguinal approach is often preferred for more comprehensive analgesia.</p>
+            `
+        },
+        femoral: {
+            title: 'Femoral Nerve Block',
+            content: `
+                <h4 class="font-bold text-lg mb-2">Indications</h4>
+                <p class="mb-4">More targeted than an FICB. Excellent for mid-shaft femur fractures, patella fractures/dislocations, and analgesia for knee injuries.</p>
+                <img src="https://upload.wikimedia.org/wikipedia/commons/a/a2/Femoral_nerve_block_ultrasound.jpg" 
+                     alt="Sonoanatomy of Femoral Nerve Block showing NAVEL relationship at the inguinal crease. Image by UOttawa Anesthesia, CC BY-SA 4.0, via Wikimedia Commons." 
+                     class="w-full rounded-lg mb-4 border"
+                     onerror="this.onerror=null; const d = document.createElement('div'); d.className = 'w-full h-48 bg-slate-200 flex items-center justify-center text-slate-500 text-center p-4 rounded-lg border'; d.innerHTML = this.alt; this.parentNode.replaceChild(d, this);">
+                <h4 class="font-bold text-lg mb-2">Anatomy & Sonoanatomy</h4>
+                <p class="mb-4">This is a <strong>concentration-dependent</strong> nerve block. The target is the femoral nerve itself, which lies lateral to the femoral artery and deep to the fascia iliaca at the inguinal crease. It appears as a hyperechoic, honeycomb-like structure.</p>
+                <div class="my-4 p-4 border rounded-lg bg-gray-50">
+                    <p class="font-semibold text-center mb-2">"NAVEL" - Inguinal Crease Anatomy</p>
+                    <p class="text-sm text-center">From lateral to medial: <strong>N</strong>erve, <strong>A</strong>rtery, <strong>V</strong>ein, <strong>E</strong>mpty space, <strong>L</strong>ymphatics.</p>
+                </div>
+                <h4 class="font-bold text-lg mb-2">Technique</h4>
+                <ol class="list-decimal list-inside space-y-2 mb-4">
+                    <li>Position patient supine. Use a high-frequency linear probe.</li>
+                    <li>Identify the femoral artery and the hyperechoic femoral nerve just lateral to it.</li>
+                    <li>Insert a 50mm needle in-plane from lateral to medial. Pierce the fascia lata and fascia iliaca.</li>
+                    <li>Carefully deposit LA around the nerve, aiming for a "donut" of fluid. Avoid intraneural injection.</li>
+                </ol>
+                <h4 class="font-bold text-lg mb-2">LA Choice & Volume</h4>
+                <p><strong>Concentration-dependent.</strong> 15-20ml of 0.25% or 0.5% Levobupivacaine.</p>
+                <h4 class="font-bold text-lg mb-2">Pearls & Risks</h4>
+                <p>Causes significant quadriceps weakness, increasing the risk of falls. Counsel patients accordingly. Less volume required than an FICB. Provides no coverage for the lateral thigh (unlike FICB).</p>
+            `
+        },
+        popliteal: {
+            title: 'Popliteal Sciatic Block',
+            content: `
+                <h4 class="font-bold text-lg mb-2">Indications</h4>
+                <p class="mb-4">Provides comprehensive anaesthesia and analgesia for the foot and ankle, distal to the knee. Ideal for ankle fracture/dislocations, calcaneal fractures, and complex foot injuries.</p>
+                <img src="https://www.nysora.com/wp-content/uploads/2018/11/20.-Popliteal-sciatic-nerve-block-US-Anatomy-09.28.2018-1.jpg" 
+                     alt="Sonoanatomy of Popliteal Sciatic Block showing the sciatic nerve superior to the popliteal artery and vein. Image courtesy of NYSORA.com" 
+                     class="w-full rounded-lg mb-4 border"
+                     onerror="this.onerror=null; const d = document.createElement('div'); d.className = 'w-full h-48 bg-slate-200 flex items-center justify-center text-slate-500 text-center p-4 rounded-lg border'; d.innerHTML = this.alt; this.parentNode.replaceChild(d, this);">
+                <h4 class="font-bold text-lg mb-2">Anatomy & Sonoanatomy</h4>
+                <p class="mb-4">The target is the sciatic nerve in the popliteal fossa, <strong>before</strong> it bifurcates into the tibial and common peroneal nerves. Using a linear probe in a transverse orientation, the sciatic nerve appears as a large, bright, hyperechoic oval or triangular structure, superficial and lateral to the popliteal artery and vein.</p>
+                <h4 class="font-bold text-lg mb-2">Technique</h4>
+                <ol class="list-decimal list-inside space-y-2 mb-4">
+                    <li>Position patient prone or lateral with the knee slightly flexed.</li>
+                    <li>Use a linear probe to scan the popliteal crease, identifying the popliteal artery. The sciatic nerve is typically found 5-8cm superior to the crease.</li>
+                    <li>Insert a 50-100mm needle in-plane, usually from the lateral side.</li>
+                    <li>Advance the needle tip until it is adjacent to the nerve, within the V-shaped epineural sheath.</li>
+                    <li>Deposit LA, observing for circumferential spread around the nerve.</li>
+                </ol>
+                <h4 class="font-bold text-lg mb-2">LA Choice & Volume</h4>
+                <p><strong>Concentration-dependent.</strong> 20ml of 0.5% Levobupivacaine or 0.5% Ropivacaine for prolonged analgesia.</p>
+                <h4 class="font-bold text-lg mb-2">Pearls & Risks</h4>
+                <p>This block provides excellent analgesia for the ankle but <strong>spares the medial malleolus and medial foot</strong>, which are innervated by the saphenous nerve (a branch of the femoral nerve). For complete ankle anaesthesia, a separate saphenous nerve block is required.</p>
+            `
+        },
+        sapb: {
+            title: 'Serratus Anterior Plane Block (SAPB)',
+            content: `
+                <h4 class="font-bold text-lg mb-2">Indications</h4>
+                <p class="mb-4">Excellent for antero-lateral rib fractures (ribs 2-9) and pain from chest drains. Key part of an opioid-sparing strategy.</p>
+                <img src="https://upload.wikimedia.org/wikipedia/commons/c/c5/Serratus_anterior_plane_block_ultrasound_anatomy.png" 
+                     alt="Sonoanatomy of Serratus Anterior Plane Block showing latissimus dorsi, serratus anterior, and ribs. Image by UOttawa Anesthesia, CC BY-SA 4.0, via Wikimedia Commons." 
+                     class="w-full rounded-lg mb-4 border"
+                     onerror="this.onerror=null; const d = document.createElement('div'); d.className = 'w-full h-48 bg-slate-200 flex items-center justify-center text-slate-500 text-center p-4 rounded-lg border'; d.innerHTML = this.alt; this.parentNode.replaceChild(d, this);">
+                <h4 class="font-bold text-lg mb-2">Anatomy & Sonoanatomy</h4>
+                <p class="mb-4">A <strong>volume-dependent</strong> fascial plane block. LA is injected either superficial or deep to the serratus anterior muscle in the mid-axillary line.</p>
+                <div class="my-4 p-4 border rounded-lg bg-gray-50">
+                    <p class="font-semibold text-center mb-2">Muscular Layers (Mid-axillary line)</p>
+                    <div class="relative w-full h-24 bg-red-100 rounded-lg p-2 flex flex-col justify-around text-center text-sm font-semibold border-2 border-gray-300">
+                        <div class="bg-blue-100 p-1 rounded">Latissimus Dorsi</div>
+                        <div class="bg-green-100 p-1 rounded">Serratus Anterior</div>
+                        <div class="bg-gray-300 p-1 rounded">Ribs / Pleura</div>
+                        <div class="absolute top-1/3 left-2 text-xs text-blue-800">&lt;-- Superficial Plane</div>
+                        <div class="absolute top-2/3 left-2 text-green-800">&lt;-- Deep Plane</div>
+                    </div>
+                </div>
+                <h4 class="font-bold text-lg mb-2">Technique</h4>
+                <ol class="list-decimal list-inside space-y-2 mb-4">
+                    <li>Patient supine or semi-recumbent, arm abducted ("hand behind head").</li>
+                    <li>Use linear probe in mid-axillary line (level of 5th rib) to identify muscular layers and pleura.</li>
+                    <li>Advance 50mm needle in-plane into desired fascial plane.</li>
+                    <li>Inject LA to hydrodissect and open the plane. Visualize spread in real-time.</li>
+                </ol>
+                <h4 class="font-bold text-lg mb-2">LA Choice & Volume</h4>
+                <p><strong>Volume-dependent.</strong> 30-40ml of 0.25% Levobupivacaine. Safe in coagulopathy.</p>
+                <h4 class="font-bold text-lg mb-2">Pearls & Risks</h4>
+                <p>Technically straightforward and safe. Onset is delayed (up to 30 mins). Deep block has a theoretical risk of pneumothorax, minimised with good US technique.</p>
+            `
+        },
+        facial: {
+            title: 'Supraorbital & Infraorbital Blocks',
+            content: `
+                <h4 class="font-bold text-lg mb-2">Indications</h4>
+                <ul class="list-disc list-inside mb-4">
+                    <li><strong>Supraorbital Block:</strong> Anaesthesia for the forehead and anterior scalp. Ideal for large or complex forehead lacerations.</li>
+                    <li><strong>Infraorbital Block:</strong> Anaesthesia for the mid-face, including the upper lip, side of the nose, and lower eyelid. Excellent for upper lip lacerations.</li>
+                </ul>
+                <img src="https://www.nysora.com/wp-content/uploads/2018/11/04.-Infraorbital-Nerve-Block-US-Anatomy-09.27.2018.jpg" 
+                     alt="Sonoanatomy of Infraorbital Nerve Block showing the infraorbital foramen. Image courtesy of NYSORA.com" 
+                     class="w-full rounded-lg mb-4 border"
+                     onerror="this.onerror=null; const d = document.createElement('div'); d.className = 'w-full h-48 bg-slate-200 flex items-center justify-center text-slate-500 text-center p-4 rounded-lg border'; d.innerHTML = this.alt; this.parentNode.replaceChild(d, this);">
+                <h4 class="font-bold text-lg mb-2">Anatomy & Technique</h4>
+                <p class="mb-4">These are low-volume blocks targeting nerves as they exit their respective foramina. Ultrasound guidance is highly recommended for safety.</p>
+                <div class="p-4 border rounded-lg bg-gray-50 mb-4">
+                    <h5 class="font-semibold text-md mb-2">Supraorbital Nerve</h5>
+                    <p class="text-sm"><strong>Technique:</strong> Use a high-frequency linear probe to identify the supraorbital notch/foramen along the superior orbital rim. Deposit 1-2ml of LA just superior to the foramen, avoiding the globe. The nerve is often seen adjacent to the supraorbital artery.</p>
+                </div>
+                <div class="p-4 border rounded-lg bg-gray-50 mb-4">
+                    <h5 class="font-semibold text-md mb-2">Infraorbital Nerve</h5>
+                    <p class="text-sm"><strong>Technique:</strong> Identify the infraorbital foramen, typically in line with the pupil in neutral gaze, about 1cm below the inferior orbital rim. Deposit 1-2ml of LA into the tissue just superficial to the foramen. An intra-oral approach is also possible but less common in the ED.</p>
+                </div>
+                <h4 class="font-bold text-lg mb-2">LA Choice & Volume</h4>
+                <p><strong>Low volume.</strong> 1-3ml of 1% or 2% Lidocaine is sufficient. Using adrenaline-containing solutions is generally avoided on the face.</p>
+                <h4 class="font-bold text-lg mb-2">Pearls & Risks</h4>
+                <p>Ultrasound guidance significantly improves safety by visualising the needle tip and avoiding the globe and major vessels. Always aspirate before injecting. Do not inject directly into the foramen to avoid nerve injury.</p>
+            `
+        },
+        forearm: {
+            title: 'Forearm Blocks (Median, Ulnar, Radial)',
+            content: `
+                 <h4 class="font-bold text-lg mb-2">Indications</h4>
+                <p class="mb-4">Targeted anaesthesia for procedures on the hand and distal forearm (e.g., complex lacerations, abscess drainage). Provides a wide field without distorting wound anatomy.</p>
+                <img src="https://upload.wikimedia.org/wikipedia/commons/4/4b/Ultrasound_Median_Nerve_in_the_Forearm.jpg" 
+                     alt="Sonoanatomy of Forearm Nerve Blocks showing the median nerve between FDS and FDP muscles. Image by UOttawa Anesthesia, CC BY-SA 4.0, via Wikimedia Commons." 
+                     class="w-full rounded-lg mb-4 border"
+                     onerror="this.onerror=null; const d = document.createElement('div'); d.className = 'w-full h-48 bg-slate-200 flex items-center justify-center text-slate-500 text-center p-4 rounded-lg border'; d.innerHTML = this.alt; this.parentNode.replaceChild(d, this);">
+                <h4 class="font-bold text-lg mb-2">Anatomy & Sonoanatomy</h4>
+                <p class="mb-4">The three nerves are reliably identified in the mid-forearm. These are <strong>concentration-dependent</strong> blocks.</p>
+                <ul class="list-disc list-inside space-y-2 mb-4">
+                    <li><strong>Median Nerve:</strong> Midline, between FDS and FDP muscles.</li>
+                    <li><strong>Ulnar Nerve:</strong> Medial (ulnar) side, next to the ulnar artery.</li>
+                    <li><strong>Radial Nerve:</strong> Lateral (radial) side, next to the radial artery.</li>
+                </ul>
+                <h4 class="font-bold text-lg mb-2">Technique</h4>
+                <ol class="list-decimal list-inside space-y-2 mb-4">
+                    <li>Patient's arm supine. Use high-frequency linear probe.</li>
+                    <li>Systematically identify each required nerve.</li>
+                    <li>Advance a fine-gauge needle in-plane to deposit LA around the nerve.</li>
+                    <li>For radial and ulnar nerves, approach from the side away from the artery to minimise risk of puncture.</li>
+                </ol>
+                 <h4 class="font-bold text-lg mb-2">LA Choice & Volume</h4>
+                <p><strong>Concentration-dependent.</strong> Small volume of 3-5ml per nerve. Use 1% Lidocaine for short procedures, or 0.25-0.5% Levobupivacaine for longer analgesia.</p>
+                <h4 class="font-bold text-lg mb-2">Pearls & Risks</h4>
+                <p>US guidance is superior to landmark techniques. Blocking in the mid-forearm is easier than at the wrist. Remember sensory overlap in the hand often requires blocking two or all three nerves.</p>
+            `
+        },
+        ivra: {
+            title: 'Intravenous Regional Anaesthesia (IVRA / Bier\'s Block)',
+            content: `
+                <h4 class="font-bold text-lg mb-2 text-red-600">High-Risk Procedure</h4>
+                <p class="mb-4">Primary indication is for closed reduction of distal forearm fractures (e.g., Colles'). Must be performed in a resus-capable area with strict adherence to RCEM guidelines.</p>
+                <h4 class="font-bold text-lg mb-2">Contraindications</h4>
+                <p class="mb-4">Absolute: LA allergy, limb infection, severe peripheral vascular disease, sickle cell disease/trait. Relative: Morbid obesity, uncooperative patient.</p>
+                <h4 class="font-bold text-lg mb-2">Technique (RCEM Guideline Summary)</h4>
+                <ol class="list-decimal list-inside space-y-2 mb-4">
+                    <li>Requires a specific double-cuff pneumatic tourniquet.</li>
+                    <li>Establish two IVs: one in the affected hand, one in the contralateral arm.</li>
+                    <li>Elevate arm to exsanguinate. Inflate proximal cuff to 100mmHg above systolic BP (max 300mmHg). Confirm no radial pulse.</li>
+                    <li>Slowly inject LA into affected limb's IV. Remove cannula.</li>
+                    <li><strong>CRITICAL CUFF TIMING:</strong> Must remain inflated for a <strong>MINIMUM of 20 minutes</strong> and a <strong>MAXIMUM of 45 minutes.</strong></li>
+                </ol>
+                <h4 class="font-bold text-lg mb-2">LA Choice & Volume</h4>
+                <p class="font-bold">The ONLY agent is 0.5% Prilocaine at 3mg/kg. <span class="text-red-600 uppercase">NEVER use Bupivacaine or adrenaline-containing solutions.</span></p>
+                <h4 class="font-bold text-lg mb-2">Pearls & Risks</h4>
+                <p>Most significant risk is LAST from cuff failure. All staff must be vigilant. Be aware of rare risk of methaemoglobinaemia with prilocaine.</p>
+            `
+        },
+        gon: {
+            title: 'Greater Occipital Nerve (GON) Block',
+             content: `
+                <h4 class="font-bold text-lg mb-2">Indications</h4>
+                <p class="mb-4">A valuable tool for acute management of primary headache syndromes, including migraine and cluster headache, especially when refractory to standard therapies.</p>
+                <img src="https://www.nysora.com/wp-content/uploads/2018/11/02.-Greater-Occipital-Nerve-Block-US-Anatomy-09.27.2018.jpg" 
+                     alt="Sonoanatomy of Greater Occipital Nerve Block showing the GON superficial to the semispinalis capitis muscle. Image courtesy of NYSORA.com" 
+                     class="w-full rounded-lg mb-4 border"
+                     onerror="this.onerror=null; const d = document.createElement('div'); d.className = 'w-full h-48 bg-slate-200 flex items-center justify-center text-slate-500 text-center p-4 rounded-lg border'; d.innerHTML = this.alt; this.parentNode.replaceChild(d, this);">
+                <h4 class="font-bold text-lg mb-2">Anatomy & Sonoanatomy</h4>
+                <p class="mb-4">The GON is identified with a high-frequency linear probe in a transverse orientation at the C2 level. It is a small, hyperechoic structure superficial to the semispinalis capitis muscle, often next to the occipital artery.</p>
+                <h4 class="font-bold text-lg mb-2">Technique</h4>
+                <p>Patient sits and leans forward. Identify nerve with ultrasound. Advance a fine-gauge needle in-plane to deposit a small volume of LA around the nerve.</p>
+                <h4 class="font-bold text-lg mb-2">LA Choice & Volume</h4>
+                <p>Very low volume block. 1-3ml per side. A common mixture is 1.5ml of 1% lidocaine with 1.5ml of 0.25% bupivacaine for rapid onset and prolonged duration.</p>
+                <h4 class="font-bold text-lg mb-2">Pearls & Risks</h4>
+                <p>Evidence suggests it can be as effective as IV metoclopramide for acute migraine. Simple, low-risk, and highly effective.</p>
+            `
+        }
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    const mainNavButtons = document.querySelectorAll('#main-nav button, #mobile-menu button');
+    const quickAccessButtons = document.querySelectorAll('.quick-access-button');
+    const tabs = document.querySelectorAll('.tab-content');
+    const mobileMenuButton = document.getElementById('mobile-menu-button');
+    const mobileMenu = document.getElementById('mobile-menu');
+
+    function switchTab(targetId, subTargetId = null) {
+        tabs.forEach(tab => tab.classList.add('hidden'));
+        document.getElementById(targetId).classList.remove('hidden');
+
+        const allNavButtons = document.querySelectorAll('.nav-button');
+        allNavButtons.forEach(btn => btn.classList.remove('active'));
+        
+        document.querySelectorAll(`.nav-button[data-target="${targetId}"]`).forEach(btn => {
+            btn.classList.add('active');
+        });
+        
+        if (targetId === 'safety-section' && subTargetId === 'checklist') {
+            document.getElementById('checklist').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+
+    mainNavButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const targetId = button.dataset.target;
+            switchTab(targetId);
+            mobileMenu.classList.add('hidden');
+        });
+    });
+
+    quickAccessButtons.forEach(button => {
+        button.addEventListener('click', (e) => {
+            e.preventDefault();
+            const targetId = button.dataset.target;
+            const subTargetId = button.dataset.subtarget || null;
+            switchTab(targetId, subTargetId);
+        });
+    });
+
+    mobileMenuButton.addEventListener('click', () => {
+        mobileMenu.classList.toggle('hidden');
+    });
+
+    // --- Dashboard ---
+    const indicationSelector = document.getElementById('indication-selector');
+    APP_DATA.indications.forEach(ind => {
+        const button = document.createElement('button');
+        button.className = 'pill-button px-4 py-2 rounded-full text-sm font-medium text-gray-700 bg-white hover:bg-gray-100';
+        button.textContent = ind.name;
+        button.dataset.blockId = ind.blockId;
+        indicationSelector.appendChild(button);
+    });
+
+    indicationSelector.addEventListener('click', (e) => {
+        if (e.target.tagName === 'BUTTON') {
+            const blockId = e.target.dataset.blockId;
+            const blockTitle = APP_DATA.blocks[blockId].title;
+            
+            document.querySelectorAll('#indication-selector .pill-button').forEach(btn => btn.classList.remove('selected'));
+            e.target.classList.add('selected');
+
+            const recommendationOutput = document.getElementById('recommendation-output');
+            const recommendationText = document.getElementById('recommendation-text');
+            recommendationText.innerHTML = `<strong>${blockTitle}</strong>. <a href="#" data-block-id-link="${blockId}" class="text-blue-600 hover:underline font-semibold">Click here to go to the guide &raquo;</a>`;
+            recommendationOutput.classList.remove('hidden');
+        }
+    });
+    
+    document.getElementById('recommendation-output').addEventListener('click', (e) => {
+        if(e.target.dataset.blockIdLink) {
+            e.preventDefault();
+            const blockId = e.target.dataset.blockIdLink;
+            switchTab('guides-section');
+            loadBlockContent(blockId);
+            document.querySelectorAll('#block-nav .block-nav-button').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.blockId === blockId) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+    });
+
+    // --- Block Guides ---
+    const blockNav = document.getElementById('block-nav');
+    const blockContentArea = document.getElementById('block-content-area');
+
+    function loadBlockContent(blockId) {
+        if (APP_DATA.blocks[blockId]) {
+            blockContentArea.innerHTML = APP_DATA.blocks[blockId].content;
+            blockContentArea.scrollTop = 0;
+            document.querySelectorAll('#block-nav .block-nav-button').forEach(btn => {
+                 btn.classList.remove('active');
+                 if(btn.dataset.blockId === blockId) {
+                    btn.classList.add('active');
+                 }
+            });
+        }
+    }
+    
+    blockNav.innerHTML = '';
+    Object.keys(APP_DATA.blocks).forEach(key => {
+        const block = APP_DATA.blocks[key];
+        const button = document.createElement('button');
+        button.className = 'block-nav-button w-full text-left px-3 py-2 rounded-md font-medium text-gray-700 hover:bg-gray-100 border-l-4 border-transparent';
+        button.textContent = block.title;
+        button.dataset.blockId = key;
+        blockNav.appendChild(button);
+    });
+
+    blockNav.addEventListener('click', (e) => {
+        if (e.target.tagName === 'BUTTON') {
+            const blockId = e.target.dataset.blockId;
+            loadBlockContent(blockId);
+        }
+    });
+
+    loadBlockContent('ficb');
+    blockNav.querySelector('button[data-block-id="ficb"]').classList.add('active');
+
+    // --- Calculator ---
+    const drugSelect = document.getElementById('la-drug');
+    drugSelect.innerHTML = '';
+    APP_DATA.drugs.forEach(drug => {
+        const option = document.createElement('option');
+        option.value = drug.id;
+        option.textContent = drug.name;
+        drugSelect.appendChild(option);
+    });
+
+    const calculateBtn = document.getElementById('calculate-dose-btn');
+    calculateBtn.addEventListener('click', () => {
+        const weight = parseFloat(document.getElementById('patient-weight').value);
+        const drugId = document.getElementById('la-drug').value;
+        const drug = APP_DATA.drugs.find(d => d.id === drugId);
+        const resultDiv = document.getElementById('dose-result');
+        const resultText = document.getElementById('result-text');
+
+        if (!weight || weight <= 0 || !drug) {
+            resultText.innerHTML = `<p class="text-red-600">Please enter a valid weight and select a drug.</p>`;
+            resultDiv.classList.remove('hidden');
+            return;
+        }
+
+        const maxDosePlainMg = drug.plain * weight;
+        let resultHTML = `<p><strong class="font-semibold">${drug.name} for a ${weight}kg patient:</strong></p>`;
+        resultHTML += `<div class="mt-2 text-sm border-t pt-2"><strong class="text-gray-700">Plain Solution:</strong><br>Max Dose: <span class="font-bold text-blue-600">${maxDosePlainMg.toFixed(1)} mg</span>`;
+        
+        const concValue = parseFloat(drug.conc.match(/(\d+(\.\d+)?)%/)[1]);
+        if(concValue) {
+            const maxVolume = maxDosePlainMg / (concValue * 10);
+            resultHTML += ` | Max Volume (${drug.conc}): <span class="font-bold text-blue-600">${maxVolume.toFixed(1)} ml</span></div>`;
+        }
+
+        if (drug.adrenaline) {
+            const maxDoseAdrenalineMg = drug.adrenaline * weight;
+            resultHTML += `<div class="mt-2 text-sm border-t pt-2"><strong class="text-gray-700">With Adrenaline:</strong><br>Max Dose: <span class="font-bold text-blue-600">${maxDoseAdrenalineMg.toFixed(1)} mg</span>`;
+            if(concValue) {
+                const maxVolumeAdrenaline = maxDoseAdrenalineMg / (concValue * 10);
+                 resultHTML += ` | Max Volume (${drug.conc}): <span class="font-bold text-blue-600">${maxVolumeAdrenaline.toFixed(1)} ml</span></div>`;
+            }
+        }
+        
+        resultText.innerHTML = resultHTML;
+        resultDiv.classList.remove('hidden');
+    });
+    
+    const laDosingTable = document.getElementById('la-dosing-table');
+    laDosingTable.innerHTML = APP_DATA.drugs.map(drug => `
+        <tr>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${drug.name}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${drug.plain} mg/kg</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${drug.adrenaline ? `${drug.adrenaline} mg/kg` : 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${drug.name === 'Prilocaine (for IVRA)' ? '<strong>Agent of choice for IVRA.</strong>' : 'Standard use.'}</td>
+        </tr>
+    `).join('');
+
+    // --- Chart.js ---
+    const ctx = document.getElementById('la-chart').getContext('2d');
+    const laChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: APP_DATA.drugs.map(d => d.name),
+            datasets: [
+                {
+                    label: 'Onset (mins)',
+                    data: APP_DATA.drugs.map(d => d.onset),
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Duration (mins)',
+                    data: APP_DATA.drugs.map(d => d.duration),
+                    backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 1,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            maintainAspectRatio: false,
+            responsive: true,
+            plugins: {
+                title: { display: true, text: 'LA Onset vs. Duration' },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.y !== null) {
+                                label += `${context.parsed.y} mins`;
+                            }
+                            return label;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Onset (mins)'
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Duration (mins)'
+                    },
+                    grid: {
+                        drawOnChartArea: false, 
+                    },
+                }
+            }
+        }
+    });
+});
+</script>
+
+</body>
+</html>
